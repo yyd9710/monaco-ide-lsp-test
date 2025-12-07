@@ -22,7 +22,7 @@
             </div>
         </div>
         <div class="code-ide-container">
-            <div ref="editorContainer" class="monaco-editor"></div>
+            <div id="monaco-editor-root" ref="editorContainer" class="monaco-editor"></div>
         </div>
     </div>
 </template>
@@ -41,6 +41,7 @@ import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode
 import { createUrl } from 'monaco-languageclient/common'
 import 'vscode/localExtensionHost';
 import FileTreeNode from './components/FileTreeNode.vue'
+
 
 // 文件树节点类型定义
 export interface FileTreeNode {
@@ -596,6 +597,7 @@ const handleDrop = (targetNode: FileTreeNode) => {
     }
 }
 
+
 const editorContainer = ref<HTMLDivElement | null>(null)
 let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null
 let languageClient: MonacoLanguageClient | null = null
@@ -627,9 +629,7 @@ const initLSP = async () => {
         // 创建 WebSocket 连接
         // 如果后端要求子协议，需要在第二个参数中指定
         // 如果后端不要求子协议，可以传入空数组 []
-        console.log(1)
         const webSocket = new WebSocket(LSP_WS_URL)
-        console.log(webSocket)
         webSocket.onopen = () => {
             console.log('LSP WebSocket 连接已建立')
             
@@ -691,10 +691,81 @@ const initLSP = async () => {
     }
 }
 
+import * as vscode from 'vscode';
+// Import Monaco Language Client components
+import { EditorApp, type EditorAppConfig } from 'monaco-languageclient/editorApp';
+import { configureDefaultWorkerFactory } from 'monaco-languageclient/workerFactory';
+import { MonacoVscodeApiWrapper, type MonacoVscodeApiConfig } from 'monaco-languageclient/vscodeApiWrapper';
+import { LanguageClientWrapper, type LanguageClientConfig } from 'monaco-languageclient/lcwrapper';
+
+const createEditorAndLanguageClient = async () => {
+    const languageId = 'python';
+    const code = '// initial editor content';
+    const codeUri = '/workspace/hello.py';
+
+    // Monaco VSCode API configuration
+    const vscodeApiConfig: MonacoVscodeApiConfig = {
+        $type: 'extended',
+        viewsConfig: {
+            $type: 'EditorService'
+        },
+        userConfiguration: {
+            json: JSON.stringify({
+                'workbench.colorTheme': 'Default Dark Modern',
+                'editor.wordBasedSuggestions': 'off'
+            })
+        },
+        monacoWorkerFactory: configureDefaultWorkerFactory
+    };
+
+    // Language client configuration
+    const languageClientConfig: LanguageClientConfig = {
+        languageId: languageId,
+        connection: {
+            options: {
+                $type: 'WebSocketUrl',
+                // at this url the language server for myLang must be reachable
+                url: 'ws://localhost:3001/pyright'
+            }
+        },
+        clientOptions: {
+            documentSelector: [languageId],
+            orkspaceFolder: {
+                index: 0,
+                name: 'workspace',
+                uri: vscode.Uri.file('/workspace')
+            }
+        }
+    };
+
+    // editor app / monaco-editor configuration
+    // const editorAppConfig: EditorAppConfig = {
+    //     codeResources: {
+    //         main: {
+    //             text: code,
+    //             uri: codeUri
+    //         }
+    //     }
+    // };
+
+    // Create the monaco-vscode api Wrapper and start it before anything else
+    const apiWrapper = new MonacoVscodeApiWrapper(vscodeApiConfig);
+    await apiWrapper.start();
+
+    // Create language client wrapper
+    const lcWrapper = new LanguageClientWrapper(languageClientConfig);
+    await lcWrapper.start();
+
+    // Create and start the editor app
+    // const editorApp = new EditorApp(editorAppConfig);
+    // const htmlContainer = document.getElementById('monaco-editor-root')!;
+    // await editorApp.start(htmlContainer);
+}
+
 onMounted(async () => {
     // 初始化文件树
     await initFileTree()
-    
+    createEditorAndLanguageClient()
     if (editorContainer.value) {
         // 创建 Monaco Editor 实例
         editorInstance = monaco.editor.create(editorContainer.value, {
