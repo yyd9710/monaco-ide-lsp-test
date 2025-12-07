@@ -12,7 +12,11 @@
     "@element-plus/icons-vue": "^2.3.1",
     "element-plus": "^2.6.3",
     "monaco-editor": "^0.55.1",
+    "monaco-languageclient": "^10.4.0",
     "pinia": "^2.1.7",
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-ws-jsonrpc": "^3.5.0",
     "vue": "^3.4.21",
     "vue-router": "^4.3.0",
     "vue-tsc": "^3.1.6"
