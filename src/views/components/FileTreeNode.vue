@@ -1,10 +1,11 @@
 <template>
     <div class="file-tree-node">
         <div
+            v-if="!showRenameInput"
             class="node-item"
             :class="{ 'selected': node.selected, 'dragging': isDragging }"
             :style="{ paddingLeft: `${level * 16 + 4}px` }"
-            @click="handleClick"
+            @click="handleDoubleClick"
             @contextmenu.prevent="handleContextMenu"
             @dblclick="handleDoubleClick"
             draggable="true"
@@ -15,7 +16,7 @@
         >
             <span class="node-icon" @click.stop="toggleExpand">
                 <span v-if="node.type === 'folder'" class="folder-icon">
-                    {{ node.expanded ? '📂' : '📁' }}
+                    <span class="chevron" :class="{ 'expanded': node.expanded }"></span>
                 </span>
                 <span v-else class="file-icon">📄</span>
             </span>
@@ -33,6 +34,7 @@
                 @create-file="(parentPath, fileName) => $emit('create-file', parentPath, fileName)"
                 @create-folder="(parentPath, folderName) => $emit('create-folder', parentPath, folderName)"
                 @delete="$emit('delete', $event)"
+                @rename="(node, newName) => $emit('rename', node, newName)"
                 @drag-start="$emit('drag-start', $event)"
                 @drag-over="(event, node) => $emit('drag-over', event, node)"
                 @drop="$emit('drop', $event)"
@@ -46,13 +48,18 @@
             :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }"
             @click.stop
         >
-            <div class="context-menu-item" @click="handleCreateFile">
+            <div class="context-menu-item" @click="handleCreateFile" v-if="node.type === 'folder'">
                 <span class="menu-icon">📄</span>
                 <span>新建文件</span>
             </div>
             <div class="context-menu-item" @click="handleCreateFolder" v-if="node.type === 'folder'">
                 <span class="menu-icon">📁</span>
                 <span>新建文件夹</span>
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" @click="handleRename">
+                <span class="menu-icon">✏️</span>
+                <span>重命名</span>
             </div>
             <div class="context-menu-divider"></div>
             <div class="context-menu-item danger" @click="handleDelete">
@@ -81,6 +88,27 @@
                 @keyup.esc="cancelCreate"
             />
         </div>
+        
+        <!-- 重命名输入框 -->
+        <div
+            v-if="showRenameInput"
+            class="rename-input-container"
+            :style="{ paddingLeft: `${level * 16 + 4}px` }"
+        >
+            <span class="node-icon">
+                <span v-if="node.type === 'folder'" class="folder-icon">📁</span>
+                <span v-else class="file-icon">📄</span>
+            </span>
+            <input
+                ref="renameInput"
+                v-model="renameName"
+                class="rename-input"
+                :placeholder="'新名称'"
+                @blur="handleRenameInputBlur"
+                @keyup.enter="handleRenameInputEnter"
+                @keyup.esc="cancelRename"
+            />
+        </div>
     </div>
 </template>
 
@@ -100,6 +128,7 @@ const emit = defineEmits<{
     'create-file': [parentPath: string, fileName: string]
     'create-folder': [parentPath: string, folderName: string]
     delete: [node: FileTreeNode]
+    rename: [node: FileTreeNode, newName: string]
     'drag-start': [node: FileTreeNode]
     'drag-over': [event: DragEvent, node: FileTreeNode]
     drop: [node: FileTreeNode]
@@ -112,6 +141,9 @@ const showCreateInput = ref(false)
 const createType = ref<'file' | 'folder'>('file')
 const newItemName = ref('')
 const createInput = ref<HTMLInputElement | null>(null)
+const showRenameInput = ref(false)
+const renameName = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
 
 // 切换展开/折叠
@@ -175,6 +207,17 @@ const handleCreateFolder = () => {
     })
 }
 
+// 重命名
+const handleRename = () => {
+    showContextMenu.value = false
+    showRenameInput.value = true
+    renameName.value = props.node.name
+    nextTick(() => {
+        renameInput.value?.focus()
+        renameInput.value?.select()
+    })
+}
+
 // 删除
 const handleDelete = () => {
     showContextMenu.value = false
@@ -211,6 +254,30 @@ const handleCreateInputEnter = () => {
 const cancelCreate = () => {
     showCreateInput.value = false
     newItemName.value = ''
+}
+
+// 重命名输入框失焦
+const handleRenameInputBlur = () => {
+    if (renameName.value.trim() && renameName.value.trim() !== props.node.name) {
+        emit('rename', props.node, renameName.value.trim())
+    }
+    showRenameInput.value = false
+    renameName.value = ''
+}
+
+// 重命名输入框回车
+const handleRenameInputEnter = () => {
+    if (renameName.value.trim() && renameName.value.trim() !== props.node.name) {
+        emit('rename', props.node, renameName.value.trim())
+    }
+    showRenameInput.value = false
+    renameName.value = ''
+}
+
+// 取消重命名
+const cancelRename = () => {
+    showRenameInput.value = false
+    renameName.value = ''
 }
 
 // 拖拽开始
@@ -286,6 +353,24 @@ const handleDragEnd = () => {
     margin-right: 4px;
     font-size: 14px;
     flex-shrink: 0;
+}
+
+.chevron {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 4px 0 4px 5px;
+    border-color: transparent transparent transparent #cccccc;
+    transition: transform 0.15s ease;
+    display: inline-block;
+    margin-left: 3px;
+    margin-top: 1px;
+}
+
+.chevron.expanded {
+    transform: rotate(90deg);
+    margin-left: 1px;
+    margin-top: 3px;
 }
 
 .node-name {
@@ -364,6 +449,30 @@ const handleDragEnd = () => {
 }
 
 .create-input:focus {
+    border-color: #007acc;
+    box-shadow: 0 0 0 1px #007acc;
+}
+
+.rename-input-container {
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+    font-size: 13px;
+}
+
+.rename-input {
+    flex: 1;
+    background-color: #3c3c3c;
+    border: 1px solid #007acc;
+    color: #cccccc;
+    padding: 2px 4px;
+    font-size: 13px;
+    outline: none;
+    border-radius: 2px;
+    margin-left: 4px;
+}
+
+.rename-input:focus {
     border-color: #007acc;
     box-shadow: 0 0 0 1px #007acc;
 }

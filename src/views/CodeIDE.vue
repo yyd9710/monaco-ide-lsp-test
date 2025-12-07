@@ -14,6 +14,7 @@
                     @create-file="handleCreateFile"
                     @create-folder="handleCreateFolder"
                     @delete="handleDelete"
+                    @rename="handleRename"
                     @drag-start="handleDragStart"
                     @drag-over="handleDragOver"
                     @drop="handleDrop"
@@ -89,6 +90,194 @@ const initFileTree = async () => {
             ]
         }
     ]
+    
+    // 初始化后排序
+    sortFileTree(fileTree.value)
+}
+
+// ========== 文件树工具函数 ==========
+
+/**
+ * 在文件树中查找节点
+ * @param nodes 节点数组
+ * @param path 节点路径
+ * @returns 找到的节点和其父节点数组，如果没找到返回 null
+ */
+const findNodeInTree = (
+    nodes: FileTreeNode[],
+    path: string
+): { node: FileTreeNode; parent: FileTreeNode | null; parentArray: FileTreeNode[] } | null => {
+    for (const node of nodes) {
+        if (node.path === path) {
+            return { node, parent: null, parentArray: nodes }
+        }
+        if (node.children) {
+            const result = findNodeInTree(node.children, path)
+            if (result) {
+                if (result.parent === null) {
+                    result.parent = node
+                }
+                return result
+            }
+        }
+    }
+    return null
+}
+
+/**
+ * 在文件树中查找父节点
+ * @param nodes 节点数组
+ * @param path 子节点路径
+ * @returns 父节点和父节点的子数组，如果没找到返回 null
+ */
+const findParentNode = (
+    nodes: FileTreeNode[],
+    path: string
+): { parent: FileTreeNode; children: FileTreeNode[] } | null => {
+    for (const node of nodes) {
+        if (node.path === path) {
+            return { parent: node, children: node.children || [] }
+        }
+        if (node.children) {
+            for (const child of node.children) {
+                if (child.path === path) {
+                    return { parent: node, children: node.children }
+                }
+            }
+            const result = findParentNode(node.children, path)
+            if (result) {
+                return result
+            }
+        }
+    }
+    return null
+}
+
+/**
+ * 在文件树中查找指定路径的节点
+ * @param nodes 节点数组
+ * @param path 节点路径
+ * @returns 找到的节点，如果没找到返回 null
+ */
+const findNodeByPath = (nodes: FileTreeNode[], path: string): FileTreeNode | null => {
+    for (const node of nodes) {
+        if (node.path === path) {
+            return node
+        }
+        if (node.children) {
+            const result = findNodeByPath(node.children, path)
+            if (result) {
+                return result
+            }
+        }
+    }
+    return null
+}
+
+/**
+ * 从文件树中删除节点
+ * @param nodes 节点数组
+ * @param path 要删除的节点路径
+ * @returns 是否成功删除
+ */
+const removeNodeFromTree = (nodes: FileTreeNode[], path: string): boolean => {
+    for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].path === path) {
+            nodes.splice(i, 1)
+            return true
+        }
+        if (nodes[i].children) {
+            if (removeNodeFromTree(nodes[i].children!, path)) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+/**
+ * 更新节点及其子节点的路径
+ * @param node 节点
+ * @param newPath 新路径
+ */
+const updateNodePath = (node: FileTreeNode, newPath: string) => {
+    const oldPath = node.path
+    node.path = newPath
+    
+    // 更新子节点的路径
+    if (node.children) {
+        node.children.forEach(child => {
+            const childName = child.path.substring(oldPath.length)
+            updateNodePath(child, newPath + childName)
+        })
+    }
+}
+
+/**
+ * 检查路径下是否存在同名文件/文件夹
+ * @param parentPath 父路径（目标文件夹的路径）
+ * @param name 名称
+ * @returns 是否存在
+ */
+const checkNameExists = (parentPath: string, name: string): boolean => {
+    if (parentPath === '/') {
+        // 根节点
+        return fileTree.value.some(node => node.name === name)
+    }
+    const targetFolder = findNodeByPath(fileTree.value, parentPath)
+    if (!targetFolder || targetFolder.type !== 'folder') {
+        return false
+    }
+    return (targetFolder.children || []).some(node => node.name === name)
+}
+
+/**
+ * 生成唯一名称（如果名称已存在，添加数字后缀）
+ * @param parentPath 父路径
+ * @param name 原始名称
+ * @returns 唯一名称
+ */
+const generateUniqueName = (parentPath: string, name: string): string => {
+    if (!checkNameExists(parentPath, name)) {
+        return name
+    }
+    
+    let counter = 1
+    let uniqueName = name
+    const nameParts = name.split('.')
+    const hasExtension = nameParts.length > 1
+    const baseName = hasExtension ? nameParts.slice(0, -1).join('.') : name
+    const extension = hasExtension ? '.' + nameParts[nameParts.length - 1] : ''
+    
+    while (checkNameExists(parentPath, uniqueName)) {
+        uniqueName = `${baseName} (${counter})${extension}`
+        counter++
+    }
+    
+    return uniqueName
+}
+
+/**
+ * 排序文件树节点（文件夹在前，文件在后，同类型按名称排序）
+ * @param nodes 节点数组
+ */
+const sortFileTree = (nodes: FileTreeNode[]) => {
+    // 递归排序子节点
+    nodes.forEach(node => {
+        if (node.children) {
+            sortFileTree(node.children)
+        }
+    })
+    
+    // 排序当前层级：文件夹在前，文件在后，同类型按名称排序（不区分大小写）
+    nodes.sort((a, b) => {
+        // 先按类型排序：folder < file
+        if (a.type !== b.type) {
+            return a.type === 'folder' ? -1 : 1
+        }
+        // 同类型按名称排序（不区分大小写）
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
 }
 
 // 节点选择处理
@@ -114,33 +303,193 @@ const handleNodeSelect = (node: FileTreeNode) => {
 }
 
 // 创建文件
-const handleCreateFile = async (parentPath: string, fileName: string) => {
-    // TODO: 调用接口创建文件
-    // await createFile(parentPath, fileName)
-    // 重新加载文件树
-    // await initFileTree()
+const handleCreateFile = (parentPath: string, fileName: string) => {
+    if (!fileName || !fileName.trim()) {
+        return
+    }
     
-    console.log('创建文件:', parentPath, fileName)
+    // 生成唯一名称
+    const uniqueName = generateUniqueName(parentPath, fileName.trim())
+    
+    // 构建新文件路径
+    const newPath = parentPath === '/' 
+        ? `/${uniqueName}` 
+        : `${parentPath}/${uniqueName}`
+    
+    // 创建新文件节点
+    const newNode: FileTreeNode = {
+        name: uniqueName,
+        path: newPath,
+        type: 'file'
+    }
+    
+    // 查找目标文件夹（parentPath 就是目标文件夹的路径）
+    if (parentPath === '/') {
+        // 添加到根节点
+        fileTree.value.push(newNode)
+        sortFileTree(fileTree.value)
+    } else {
+        const targetFolder = findNodeByPath(fileTree.value, parentPath)
+        if (targetFolder && targetFolder.type === 'folder') {
+            if (!targetFolder.children) {
+                targetFolder.children = []
+            }
+            targetFolder.children.push(newNode)
+            // 确保父文件夹展开
+            targetFolder.expanded = true
+            // 排序子节点
+            sortFileTree([targetFolder])
+        } else {
+            console.error('找不到目标文件夹或目标不是文件夹:', parentPath)
+            return
+        }
+    }
+    
+    // 选中新创建的文件
+    nextTick(() => {
+        // 先取消所有节点的选中状态
+        const unselectAll = (nodes: FileTreeNode[]) => {
+            nodes.forEach(n => {
+                n.selected = false
+                if (n.children) {
+                    unselectAll(n.children)
+                }
+            })
+        }
+        unselectAll(fileTree.value)
+        
+        // 选中新创建的文件
+        newNode.selected = true
+    })
 }
 
 // 创建目录
-const handleCreateFolder = async (parentPath: string, folderName: string) => {
-    // TODO: 调用接口创建目录
-    // await createFolder(parentPath, folderName)
-    // 重新加载文件树
-    // await initFileTree()
+const handleCreateFolder = (parentPath: string, folderName: string) => {
+    if (!folderName || !folderName.trim()) {
+        return
+    }
     
-    console.log('创建目录:', parentPath, folderName)
+    // 生成唯一名称
+    const uniqueName = generateUniqueName(parentPath, folderName.trim())
+    
+    // 构建新文件夹路径
+    const newPath = parentPath === '/' 
+        ? `/${uniqueName}` 
+        : `${parentPath}/${uniqueName}`
+    
+    // 创建新文件夹节点
+    const newNode: FileTreeNode = {
+        name: uniqueName,
+        path: newPath,
+        type: 'folder',
+        expanded: true,
+        children: []
+    }
+    
+    // 查找目标文件夹（parentPath 就是目标文件夹的路径）
+    if (parentPath === '/') {
+        // 添加到根节点
+        fileTree.value.push(newNode)
+        sortFileTree(fileTree.value)
+    } else {
+        const targetFolder = findNodeByPath(fileTree.value, parentPath)
+        if (targetFolder && targetFolder.type === 'folder') {
+            if (!targetFolder.children) {
+                targetFolder.children = []
+            }
+            targetFolder.children.push(newNode)
+            // 确保父文件夹展开
+            targetFolder.expanded = true
+            // 排序子节点
+            sortFileTree([targetFolder])
+        } else {
+            console.error('找不到目标文件夹或目标不是文件夹:', parentPath)
+            return
+        }
+    }
+    
+    // 选中新创建的文件夹
+    nextTick(() => {
+        // 先取消所有节点的选中状态
+        const unselectAll = (nodes: FileTreeNode[]) => {
+            nodes.forEach(n => {
+                n.selected = false
+                if (n.children) {
+                    unselectAll(n.children)
+                }
+            })
+        }
+        unselectAll(fileTree.value)
+        
+        // 选中新创建的文件夹
+        newNode.selected = true
+    })
 }
 
 // 删除文件/目录
-const handleDelete = async (node: FileTreeNode) => {
-    // TODO: 调用接口删除文件/目录
-    // await deleteFileOrFolder(node.path)
-    // 重新加载文件树
-    // await initFileTree()
+const handleDelete = (node: FileTreeNode) => {
+    // 从文件树中删除节点
+    const removed = removeNodeFromTree(fileTree.value, node.path)
     
-    console.log('删除:', node.path)
+    if (!removed) {
+        console.error('删除失败，找不到节点:', node.path)
+        return
+    }
+    
+    // 取消选中状态
+    node.selected = false
+}
+
+// 重命名文件/目录
+const handleRename = (node: FileTreeNode, newName: string) => {
+    if (!newName || !newName.trim()) {
+        return
+    }
+    
+    const trimmedName = newName.trim()
+    
+    // 获取父路径
+    const parentPath = node.path.substring(0, node.path.lastIndexOf('/')) || '/'
+    
+    // 检查新名称是否已存在（排除当前节点）
+    const parent = findParentNode(fileTree.value, node.path)
+    if (parent) {
+        const nameExists = parent.children.some(
+            child => child.name === trimmedName && child.path !== node.path
+        )
+        if (nameExists) {
+            console.warn('名称已存在:', trimmedName)
+            return
+        }
+    } else {
+        // 根节点
+        const nameExists = fileTree.value.some(
+            child => child.name === trimmedName && child.path !== node.path
+        )
+        if (nameExists) {
+            console.warn('名称已存在:', trimmedName)
+            return
+        }
+    }
+    
+    // 构建新路径
+    const newPath = parentPath === '/' 
+        ? `/${trimmedName}` 
+        : `${parentPath}/${trimmedName}`
+    
+    // 更新节点名称和路径
+    node.name = trimmedName
+    updateNodePath(node, newPath)
+    
+    // 重命名后可能需要重新排序（使用旧路径查找父节点）
+    if (parentPath === '/') {
+        sortFileTree(fileTree.value)
+    } else {
+        const parent = findParentNode(fileTree.value, newPath)
+        if (parent && parent.parent.children) {
+            sortFileTree([parent.parent])
+        }
+    }
 }
 
 // 拖拽开始
@@ -157,22 +506,74 @@ const handleDragOver = (event: DragEvent, targetNode: FileTreeNode) => {
 }
 
 // 拖拽放下
-const handleDrop = async (targetNode: FileTreeNode) => {
+const handleDrop = (targetNode: FileTreeNode) => {
     if (!draggedNode.value || draggedNode.value.path === targetNode.path) {
+        draggedNode.value = null
         return
     }
     
     // 不能拖拽到文件上，只能拖拽到文件夹
     if (targetNode.type !== 'folder') {
+        draggedNode.value = null
         return
     }
     
-    // TODO: 调用接口移动文件/目录
-    // await moveFileOrFolder(draggedNode.value.path, targetNode.path)
-    // 重新加载文件树
-    // await initFileTree()
+    // 检查是否尝试将节点拖拽到自己的子节点中（防止循环）
+    const isDescendant = (parent: FileTreeNode, childPath: string): boolean => {
+        if (parent.path === childPath) {
+            return true
+        }
+        if (parent.children) {
+            return parent.children.some(child => isDescendant(child, childPath))
+        }
+        return false
+    }
     
-    console.log('移动:', draggedNode.value.path, '到', targetNode.path)
+    if (isDescendant(draggedNode.value, targetNode.path)) {
+        console.warn('不能将节点移动到自己的子节点中')
+        draggedNode.value = null
+        return
+    }
+    
+    // 查找要移动的节点
+    const sourceResult = findNodeInTree(fileTree.value, draggedNode.value.path)
+    if (!sourceResult) {
+        console.error('找不到要移动的节点:', draggedNode.value.path)
+        draggedNode.value = null
+        return
+    }
+    
+    // 从原位置删除
+    const removed = removeNodeFromTree(fileTree.value, draggedNode.value.path)
+    if (!removed) {
+        console.error('删除源节点失败')
+        draggedNode.value = null
+        return
+    }
+    
+    // 生成新的路径和名称（如果目标文件夹中已有同名文件，生成唯一名称）
+    const newName = generateUniqueName(targetNode.path, sourceResult.node.name)
+    const newPath = targetNode.path === '/' 
+        ? `/${newName}` 
+        : `${targetNode.path}/${newName}`
+    
+    // 更新节点路径
+    sourceResult.node.name = newName
+    updateNodePath(sourceResult.node, newPath)
+    
+    // 添加到新位置
+    if (!targetNode.children) {
+        targetNode.children = []
+    }
+    targetNode.children.push(sourceResult.node)
+    
+    // 排序目标文件夹的子节点
+    sortFileTree([targetNode])
+    
+    // 确保目标文件夹展开
+    targetNode.expanded = true
+    
+    // 清除拖拽状态
     draggedNode.value = null
 }
 
